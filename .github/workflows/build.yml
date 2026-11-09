@@ -1,0 +1,37 @@
+name: Build Neon Muse AAB
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unzip project parts
+        run: for z in NeonMuse-part*.zip; do unzip -o -q "$z"; done
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - run: gradle :app:bundleRelease :wear:bundleRelease --no-daemon
+      - name: Sign
+        env:
+          KS: ${{ secrets.KEYSTORE_BASE64 }}
+          KSP: ${{ secrets.KEYSTORE_PASSWORD }}
+          KA: ${{ secrets.KEY_ALIAS }}
+          KP: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          mkdir out
+          cp app/build/outputs/bundle/release/app-release.aab out/NeonMuse-phone-v14.aab
+          cp wear/build/outputs/bundle/release/wear-release.aab out/NeonMuse-watch-v1000014.aab
+          if [ -z "$KS" ]; then echo "::warning::No key secrets - bundles are UNSIGNED"; exit 0; fi
+          echo "$KS" | base64 -d > k.jks
+          for f in out/*.aab; do jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore k.jks -storepass "$KSP" -keypass "$KP" "$f" "$KA"; done
+          rm k.jks
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NeonMuse-v14-aab
+          path: out/*.aab
